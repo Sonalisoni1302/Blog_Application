@@ -1,8 +1,7 @@
 import { Toaster, toast } from "react-hot-toast";
 import AnimationWrapper from "../common/pageAnimation";
-import { useContext } from "react";
+import { useContext, useMemo, useEffect } from "react";
 import { EditorContext } from "../pages/editor";
-import defaultBanner from "../images/defaultBanner.png"
 import { Tag } from "./Tag";
 import { useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
@@ -19,6 +18,23 @@ const Publish = () => {
     let navigate = useNavigate();
 
     let{blog, blog : {banner, title, tags, des, content}, setEditorState, setBlog} = useContext(EditorContext);
+
+    // banner may be a File (not yet uploaded) or an existing string URL.
+    // Build an object URL only when it's a File, and revoke it on cleanup.
+    const bannerPreviewUrl = useMemo(() => {
+        if (banner instanceof File) {
+            return URL.createObjectURL(banner);
+        }
+        return banner;
+    }, [banner]);
+
+    useEffect(() => {
+        return () => {
+            if (banner instanceof File && bannerPreviewUrl) {
+                URL.revokeObjectURL(bannerPreviewUrl);
+            }
+        };
+    }, [banner, bannerPreviewUrl]);
 
     const handleCloseEvent = () => {
         setEditorState("editor");
@@ -79,11 +95,28 @@ const Publish = () => {
 
         e.target.classList.add("disable");
 
-        let blogObj = {title, banner, des, content, tags, draft:false};
+        // Use FormData so a File banner is sent as a real multipart file part
+        // and lands in req.file on the backend (multer), matching CreateBlogController.
+        const formData = new FormData();
+        formData.append("title", title);
+        formData.append("des", des);
+        formData.append("content", JSON.stringify(content));
+        formData.append("tags", JSON.stringify(tags));
+        formData.append("draft", false);
+        if (blog_Id) formData.append("id", blog_Id);
 
-        axios.post(process.env.REACT_APP_SERVER_DOMAIN + "/blog/create-blog", {...blogObj, id:blog_Id}, {
+        if (banner instanceof File) {
+            formData.append("banner", banner);
+        } else if (typeof banner === "string" && banner.length) {
+            formData.append("banner", banner);
+        }
+
+        axios.post(process.env.REACT_APP_SERVER_DOMAIN + "/blog/create-blog", formData, {
             headers : {
                 'Authorization' : `Bearer ${token}`
+                // No Content-Type here - let the browser set it automatically
+                // (including the required boundary=... value for multipart/form-data).
+                // Setting it manually strips the boundary and breaks multer's parsing.
             }
         }).then(()=>{
             e.target.classList.remove("disable");
@@ -99,7 +132,7 @@ const Publish = () => {
             toast.dismiss(loadingToast);
             console.log(error)
 
-            return toast.error(error.response.data.error);        
+            return toast.error(error.response?.data?.error || "Something went wrong");
         })
 
     }
@@ -118,7 +151,7 @@ const Publish = () => {
                         <p className="text-dark-grey mb-1">Preview</p>
 
                         <div className="w-full aspect-video rounded-lg overflow-hidden bg-grey mt-4">
-                            <img src={banner}/>
+                            <img src={bannerPreviewUrl} alt = "banner"/>
                         </div>
 
                         <h1 className="text-4xl font-medium mt-12 leading-tight line-clamp-2">{title}</h1>
@@ -141,11 +174,11 @@ const Publish = () => {
                             {
                                tags.map((tag, i)=> {
                                     return <Tag tag = {tag} tagIndex = {i} key = {i}/>
-                               }) 
+                               })
                             }
-                            
+
                         </div>
-                            
+
                         <p className="mt-1 mb-4 text-dark-grey text-right">{taglimit - tags.length} Tags Left</p>
                         <button className = "btn-dark px-8" onClick={publishBlog}>Publish</button>
 

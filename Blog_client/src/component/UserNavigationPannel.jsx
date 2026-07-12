@@ -4,33 +4,34 @@ import { UserContext } from "../App"
 import { useContext } from "react";
 import { removeFromSession } from "../common/session";
 
-export const UserNavigationPanel = () => {
+export const UserNavigationPanel = ({ onClose }) => {
 
     const {userAuth : {username}, setUserAuth} = useContext(UserContext);
 
     const signOutUser = () => {
         removeFromSession("user");
         setUserAuth({token : null});
+        if (onClose) onClose();
     }
 
     return(
         <>
             <AnimationWrapper transition={{duration : 0.2}}>
                 <div className="bg-white absolute right-0 border border-grey w-60 duration-200">
-                    <Link to = "/editor" className = "flex gap-2 link md:hidden pl-8 py-4">
+                    <Link to = "/editor" className = "flex gap-2 link md:hidden pl-8 py-4" onClick={onClose}>
                         <i className="fi fi-rr-file-edit"></i>
                         <p>Write</p>
                     </Link>
 
-                    <Link to={`/user/${username}`} className="link pl-8 py-4">
+                    <Link to={`/user/${username}`} className="link pl-8 py-4" onClick={onClose}>
                         Profile
                     </Link>
 
-                    <Link to="/dashboard/blogs" className="link pl-8 py-4">
+                    <Link to="/dashboard/blogs" className="link pl-8 py-4" onClick={onClose}>
                         Dashboard
                     </Link>
 
-                    <Link to="/settings/edit-profile" className="link pl-8 py-4">
+                    <Link to="/settings/edit-profile" className="link pl-8 py-4" onClick={onClose}>
                         Settings
                     </Link>
 

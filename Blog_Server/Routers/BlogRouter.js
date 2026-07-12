@@ -1,11 +1,11 @@
-const { CreateBlogController, GetAllBlogsController, UpdateBlogController, DeleteBlogController, GetUserBlogsController, GetLetestBlogsController, GetTrendingBlogsController, SearchBlogController, GetallLatestBlogsCount, searchBlogCount, GetBlogController, GetUserBlogsCountController } = require("../Controllers/BlogController");
+const { CreateBlogController, GetAllBlogsController, UpdateBlogController, DeleteBlogController, GetUserBlogsController, GetLetestBlogsController, GetTrendingBlogsController, SearchBlogController, GetallLatestBlogsCount, searchBlogCount, GetBlogController, GetUserBlogsCountController, upload } = require("../Controllers/BlogController");
 
 const express = require("express");
 const { AuthMiddleware } = require("../Middleware/AuthMiddleware");
 const router = express.Router();
 
 // CREATE NEW BLOG
-router.post("/create-blog", AuthMiddleware, CreateBlogController);
+router.post("/create-blog", AuthMiddleware, upload.single("banner"), CreateBlogController);
 
 
 // GET Latest BLOGS

@@ -25,65 +25,87 @@ const storage = new CloudinaryStorage({
   exports.upload = multer({ storage });
 
 
-  exports.CreateBlogController = async(req,res) => {
-    try{
-        let {title, banner, des, content, tags, draft, id} = req.body;
+  
+  exports.CreateBlogController = async (req, res) => {
+    console.log("req.file:", req.file);
+    console.log("req.body:", req.body);
+    try {
+        let { title, banner, des, content, tags, draft, id } = req.body;
         const isDraft = draft === true || draft === "true";
         let author_id = req.user._id;
-        
-        if(!title || !content){
+
+        // content/tags arrive as JSON strings when sent via multipart/form-data
+        if (typeof content === "string") {
+            try { content = JSON.parse(content); } catch (e) { /* leave as-is if it wasn't JSON */ }
+        }
+        if (typeof tags === "string") {
+            try { tags = JSON.parse(tags); } catch (e) { tags = [tags]; }
+        }
+
+        if (!title || !content) {
             return res.status(400).send({
-                success : false,
-                message : "Please Fill all fields."
-            })
+                success: false,
+                message: "Please Fill all fields."
+            });
+        }
+
+        // If a file was uploaded via multer (Publish/Draft flow with a File banner), use that URL
+        if (req.file) {
+            banner = req.file.path; // multer + cloudinary gives secure_url in file.path
+        }
+        // else: banner stays whatever string was in req.body.banner (existing/unchanged banner)
+
+        if (!banner) {
+            return res.status(400).send({
+                success: false,
+                message: "Banner is required."
+            });
         }
 
         tags = Array.isArray(tags) ? tags : [tags];
-        tags = tags.map(tag=>tag.toLowerCase());
+        tags = tags.map(tag => tag.toLowerCase());
 
-        let blogId = id || title.replace(/[^a-zA-z0-9]/g, ' ').replace(/\s*/g, "-").trim() + nanoid();
+        let blogId = id || title.replace(/[^a-zA-z0-9]/g, ' ').replace(/\s+/g, "-").trim() + nanoid();
+        
 
-        if(id){
-            try{
+        if (id) {
+            try {
                 const updateBlog = await BlogModel.findOneAndUpdate(
-                    { blog_Id: blogId }, 
-                    { title, des, banner, content, tags, draft: isDraft }, 
-                    { new: true } // To return the updated document
+                    { blog_Id: blogId },
+                    { title, des, banner, content, tags, draft: isDraft },
+                    { new: true }
                 );
-    
+
                 if (!updateBlog) {
                     return res.status(404).json({ error: "Blog not found" });
-                } // Now it will log the updated blog
-    
+                }
+
                 return res.status(200).json({ id: blogId });
-            
+
             } catch (err) {
                 return res.status(500).json({ error: "Failed to update total posts number" });
             }
 
-        }else{
-            const newBlog = new BlogModel({blog_Id : blogId, title, banner, des, content, tags, author_id, draft : isDraft});
+        } else {
+            const newBlog = new BlogModel({ blog_Id: blogId, title, banner, des, content, tags, author_id, draft: isDraft });
             await newBlog.save();
 
-            await UserModel.findByIdAndUpdate(author_id, {$push : {"Blogs" : new mongoose.Types.ObjectId(newBlog._id) }, $inc : {"activity.total_posts" : 1}}, {new : true});
+            await UserModel.findByIdAndUpdate(author_id, { $push: { "Blogs": new mongoose.Types.ObjectId(newBlog._id) }, $inc: { "activity.total_posts": 1 } }, { new: true });
 
             return res.status(200).send({
-                success : true,
-                message : "Blog Created",
+                success: true,
+                message: "Blog Created",
                 newBlog
-            })
-        
+            });
         }
-    }catch(err){
+    } catch (err) {
         console.log(err);
         return res.status(500).send({
-            success : false,
-            message : "Error While Creating Blog"
-        })
+            success: false,
+            message: "Error While Creating Blog"
+        });
     }
 };
-
-
 //      <-------------------------------- GET LATEST BLOGS ------------------------------>
 
 exports.GetLetestBlogsController = async(req,res) =>{

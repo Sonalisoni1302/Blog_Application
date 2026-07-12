@@ -1,7 +1,7 @@
-import React, { useContext, useEffect, useState } from "react"; 
+import React, { useContext, useEffect, useRef, useState } from "react"; 
 import darkLogo from "../images/imgs/logo-dark.png";
 import lightLogo from "../images/imgs/logo-light.png";
-import { Link, Navigate, Outlet, useNavigate } from "react-router-dom";
+import { Link, Outlet, useNavigate } from "react-router-dom";
 import { ThemeContext, UserContext } from "../App";
 import { UserNavigationPanel } from "./UserNavigationPannel";
 import axios from "axios";
@@ -14,9 +14,13 @@ const Navbar = () => {
 
     let {theme, setTheme} = useContext(ThemeContext);
 
-    const{userAuth, userAuth : {token, profile_img, new_notification_available}, setUserAuth} = useContext(UserContext);
+    const{userAuth : {token, profile_img, new_notification_available}, setUserAuth} = useContext(UserContext);
 
     let navigate = useNavigate();
+
+    // Wraps the avatar button + dropdown panel together so we can detect
+    // clicks that land outside both of them.
+    const navPanelRef = useRef(null);
 
     useEffect(() => {
       if(token){
@@ -26,22 +30,35 @@ const Navbar = () => {
             'Authorization' : `Bearer ${token}`
           }
         }).then(({data}) => {
-          setUserAuth({...userAuth, ...data})
+          setUserAuth(prev => ({...prev, ...data}))
         }).catch(err => {
           console.log(err);
         })
 
       }
-    })
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [token])
+
+    // Robust click-outside-to-close: no timing races, no double-click needed.
+    // Replaces the old onBlur + setTimeout approach, which was fragile and
+    // intermittently required a second click on links/buttons inside the panel.
+    useEffect(() => {
+      if (!userNavPanel) return;
+
+      const handleClickOutside = (e) => {
+        if (navPanelRef.current && !navPanelRef.current.contains(e.target)) {
+          setUserNavPanel(false);
+        }
+      };
+
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => {
+        document.removeEventListener("mousedown", handleClickOutside);
+      };
+    }, [userNavPanel]);
 
     const handleUserNavPanel = () =>{
       setUserNavPanel(currval => !currval);
-    }
-
-    const handleBlur = () => {
-      setTimeout(() => {
-        setUserNavPanel(false);
-      }, 200);
     }
 
     const handleSearch = () => {
@@ -50,14 +67,14 @@ const Navbar = () => {
 
     const handleSearchInput = (e) =>{
       let query = e.target.value;
-      if(e.keyCode == 13 && query.length){
+      if(e.keyCode === 13 && query.length){
         navigate(`/search/${query}`);
       }
     }
 
     const changeTheme = () => {
       
-        let newTheme = theme == "light" ? "dark" : "light";
+        let newTheme = theme === "light" ? "dark" : "light";
 
         setTheme(newTheme);
 
@@ -70,7 +87,7 @@ const Navbar = () => {
     <>
       <nav className="navbar z-50">
         <Link to="/" className="flex-none w-10">
-          <img src={theme == "light" ? darkLogo : lightLogo} alt="logo" className="w-full" />
+          <img src={theme === "light" ? darkLogo : lightLogo} alt="logo" className="w-full" />
         </Link>
 
         <div className={"absolute bg-white w-full left-0 top-full mt-0.5 border-b border-grey py-4 px-[5vw] md:border-0 md:block md:relative md:inset-0 md:p-0 md:w-auto " + (SearchVisibility ? "show" : "hide")}>
@@ -93,12 +110,8 @@ const Navbar = () => {
           </Link>
 
           <button className="w-12 h-12 rounded-full bg-grey relative hover:bg-black/10" onClick={changeTheme}>
-            <i className={"fi fi-rr-" + (theme == "light" ? "moon-stars" : "sun") + " text-2xl block mt-1"}/>
+            <i className={"fi fi-rr-" + (theme === "light" ? "moon-stars" : "sun") + " text-2xl block mt-1"}/>
           </button>
-
-          {
-            userNavPanel ? <UserNavigationPanel/> : ""
-          }
 
         {
           token ? 
@@ -112,11 +125,15 @@ const Navbar = () => {
               </button>
             </Link>
 
-            <div className="relative">
-                <button className="w-12 h-12 rounded-full bg-grey relative hover:bg-black/10" onClick={handleUserNavPanel} onBlur={handleBlur}>
+            <div className="relative" ref={navPanelRef}>
+                <button className="w-12 h-12 rounded-full bg-grey relative hover:bg-black/10" onClick={handleUserNavPanel}>
                   {/* <i className="fi fi-rr-circle-user text-2xl block mt-1"></i> */}
-                  <img src={profile_img} className="w-full h-full object-cover rounded-full"/>
+                  <img src={profile_img} className="w-full h-full object-cover rounded-full" alt = "profile"/>
                 </button>
+
+                {
+                  userNavPanel ? <UserNavigationPanel onClose={() => setUserNavPanel(false)} /> : ""
+                }
             </div>
           </>
           :

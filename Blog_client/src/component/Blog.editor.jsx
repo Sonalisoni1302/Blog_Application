@@ -5,7 +5,7 @@ import AnimationWrapper from "../common/pageAnimation";
 import darkBanner from "../images/imgs/blog banner dark.png";
 import lightBanner from "../images/imgs/blog banner light.png";
 import { EditorContext } from "../pages/editor";
-import { useContext, useEffect } from "react";
+import { useContext, useEffect, useState } from "react";
 import EditorJS from "@editorjs/editorjs";
 import { tools } from "./tools";
 import { Toaster, toast } from "react-hot-toast";
@@ -16,24 +16,30 @@ const BlogEditor = () => {
   let {
     userAuth: { token },
   } = useContext(UserContext);
-  
-  let {blog_Id} = useParams();
+
+  let { blog_Id } = useParams();
 
   let navigate = useNavigate();
 
-  let {theme} = useContext(ThemeContext);
+  let { theme } = useContext(ThemeContext);
 
   let {
     blog,
-    blog : {title, banner, des, content, tags},
+    blog: { title, banner, des, content, tags },
     setBlog,
     textEditor,
     setTextEditor,
     setEditorState,
   } = useContext(EditorContext);
 
+  // banner can be: a File (freshly picked, not yet uploaded) or a string URL
+  // (already-uploaded banner, e.g. when editing an existing draft).
+  // bannerPreview is ONLY for the <img> tag and never touches blog.banner.
+  const [bannerPreview, setBannerPreview] = useState(
+    typeof banner === "string" ? banner : ""
+  );
+
   useEffect(() => {
-    // if (!textEditor.isReady) {
     setTextEditor(
       new EditorJS({
         holder: "textEditor",
@@ -42,17 +48,17 @@ const BlogEditor = () => {
         placeholder: "Let's write ann awesome story",
       })
     );
-    // }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleBannerUpload = (e) => {
     let img = e.target.files[0];
     if (img) {
-      setBlog({ ...blog, banner: img }); // Store the file object instead of base64
+      setBlog({ ...blog, banner: img }); // keep the real File object for upload
 
       const reader = new FileReader();
       reader.onload = () => {
-        setBlog((blog) => ({ ...blog, banner: reader.result }));
+        setBannerPreview(reader.result); // preview only
       };
       reader.readAsDataURL(img);
     }
@@ -73,79 +79,101 @@ const BlogEditor = () => {
     setBlog({ ...blog, title: input.value });
   };
 
-
   const handlePublishEvent = async () => {
-    if(!banner.length){
-        return toast.error("Upload a blog banner to publish it");
+    // banner may be a File (truthy) or a string URL (check length) or empty ("" / null / undefined)
+    let hasBanner =
+      banner && (banner instanceof File || (typeof banner === "string" && banner.length));
+
+    if (!hasBanner) {
+      return toast.error("Upload a blog banner to publish it");
     }
 
     if (!title.length) {
       return toast.error("Write blog title to publish it");
     }
 
-    if(textEditor?.isReady){
-      textEditor.save().then(data=>{
-        if(data.blocks.length){
-          setBlog({...blog, content : data});
+    if (textEditor?.isReady) {
+      textEditor.save().then((data) => {
+        if (data.blocks.length) {
+          setBlog({ ...blog, content: data });
           setEditorState("publish");
-        }else{
+        } else {
           return toast.error("write something in your blog to publish it");
         }
-      })
+      });
     }
   };
 
   const handleSaveDraft = (e) => {
-    if(e.target.classList.contains("disable")){
-        return;
+    if (e.target.classList.contains("disable")) {
+      return;
     }
 
-    if(!title.length || typeof title !== "string"){
-        return toast.error("write Blog title before publishing");
+    if (!title.length || typeof title !== "string") {
+      return toast.error("write Blog title before publishing");
     }
 
     let loadingToast = toast.loading("Saving Draft...");
 
     e.target.classList.add("disable");
 
-    if(textEditor.isReady){
-      textEditor.save().then(content=>{
-        let blogObj = {title, banner, des, content, tags, draft:true};
+    if (textEditor.isReady) {
+      textEditor.save().then((content) => {
+        // Build multipart form-data so a File banner actually reaches multer as req.file
+        const formData = new FormData();
+        formData.append("title", title);
+        formData.append("des", des || "");
+        formData.append("content", JSON.stringify(content));
+        formData.append("tags", JSON.stringify(tags || []));
+        formData.append("draft", true);
+        if (blog_Id) formData.append("id", blog_Id);
 
-        axios.post(process.env.REACT_APP_SERVER_DOMAIN + "/blog/create-blog", {...blogObj, id:blog_Id}, {
-          headers : {
-              'Authorization' : `Bearer ${token}`
-          }
-        }).then(()=>{
-          e.target.classList.remove("disable");
-    
-          toast.dismiss(loadingToast);
-          toast.success("Saved");
-    
-          setTimeout(()=>{
+        if (banner instanceof File) {
+          formData.append("banner", banner); // real file -> multer picks this up
+        } else if (typeof banner === "string" && banner.length) {
+          formData.append("banner", banner); // existing URL, no new file selected
+        }
+
+        axios
+          .post(process.env.REACT_APP_SERVER_DOMAIN + "/blog/create-blog", formData, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              // No Content-Type here - let the browser set it automatically
+              // (including the required boundary=... value for multipart/form-data).
+              // Setting it manually strips the boundary and breaks multer's parsing.
+            },
+          })
+          .then(() => {
+            e.target.classList.remove("disable");
+
+            toast.dismiss(loadingToast);
+            toast.success("Saved");
+
+            setTimeout(() => {
               navigate("/dashboard/blogs?tab=draft");
-          }, 500);
-        }).catch((error) => {
-          e.target.classList.remove("disable");
-          toast.dismiss(loadingToast);
-          console.log(error);
-          return toast.error(error.response.data.error);        
-        })
-      })
+            }, 500);
+          })
+          .catch((error) => {
+            e.target.classList.remove("disable");
+            toast.dismiss(loadingToast);
+            console.log(error);
+            return toast.error(error.response?.data?.error || "Something went wrong");
+          });
+      });
     }
   };
 
   const handleError = (e) => {
     let img = e.target;
-    img.src = theme == "light" ? lightBanner : darkBanner;
-  }
+    img.src = theme === "light" ? lightBanner : darkBanner;
+  };
 
   return (
     <>
       <nav className="navbar">
         <Toaster />
         <Link to="/" className="flex-none w-10">
-          <img src={theme == "light" ? darkLogo : lightLogo} />
+          <img src={theme === "light" ? darkLogo : lightLogo} alt = "img"/>
         </Link>
         <p className="max-md:hidden text-black line-clamp-1 w-full">
           {title?.length ? title : "New Blog"}
@@ -166,10 +194,7 @@ const BlogEditor = () => {
           <div className="mx-auto max-w-[900px] w-full">
             <div className="relative aspect-video hover:opacity-80 bg-white border-4 border-grey">
               <label htmlFor="uploadBanner">
-                <img
-                  src={banner}
-                  className="z-20" onError={handleError}
-                />
+                <img src={bannerPreview} className="z-20" onError={handleError} alt = "banner" />
                 <input
                   id="uploadBanner"
                   type="file"
